@@ -2856,7 +2856,10 @@ do
 	end
 
 	box:SetScript("OnShow", function()
-		box:SetBackdropColor(BG_R, BG_G, BG_B, DB().bgAlpha or 0.9)
+		-- szurke, mint a gyari bankzsakok koves hattere, hogy ne olvadjon
+		-- ossze a (sotet) zsak Box ablakkal
+		box:SetBackdropColor(0.36, 0.36, 0.38, DB().bgAlpha or 0.9)
+		box:SetBackdropBorderColor(0.75, 0.75, 0.75, 1)
 		Layout()
 		Refresh()
 		Bank.Dock()
