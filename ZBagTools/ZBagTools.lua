@@ -2460,7 +2460,12 @@ do
 	local posBtn = CreateFrame("Button", "ZBagToolsPosLock", combined)
 	posBtn:SetWidth(14)
 	posBtn:SetHeight(16)
-	posBtn:SetPoint("RIGHT", moneyText, "LEFT", -8, 1)
+	-- a szabad hely szamlalo es a penz kozott, kozepen
+	local mid = CreateFrame("Frame", nil, combined)
+	mid:SetHeight(16)
+	mid:SetPoint("LEFT", freeText, "RIGHT", 0, 0)
+	mid:SetPoint("RIGHT", moneyText, "LEFT", 0, 0)
+	posBtn:SetPoint("CENTER", mid, "CENTER", 0, 1)
 	local layers = {}
 	for i = 1, 3 do
 		local t = posBtn:CreateTexture(nil, i == 1 and "ARTWORK" or "OVERLAY")
@@ -2515,20 +2520,49 @@ do
 		end
 	end)
 
-	-- gyari zsakablakok a dokkolt Box mellett balra
+	-- Ha a Box nyitva van (dokkolva vagy szabadon), a gyari zsakablakok
+	-- (pl. a bankzsakok All modban) mellette sorakoznak: balra, alul egy
+	-- vonalban; ha balra nincs hely, jobbra.
 	hooksecurefunc("updateContainerFrameAnchors", function()
-		if not (combined:IsShown() and DB().boxLocked and ContainerFrame1.bags) then
+		if not (combined:IsShown() and ContainerFrame1.bags and combined:GetLeft()) then
 			if Bank.Dock then Bank.Dock() end
 			return
 		end
-		local shift = (combined:GetWidth() * combined:GetEffectiveScale() + 6) / UIParent:GetEffectiveScale()
+		local ui = UIParent:GetEffectiveScale()
+		local ces = combined:GetEffectiveScale()
+		local boxLeft = combined:GetLeft() * ces / ui
+		local boxRight = combined:GetRight() * ces / ui
+		local boxBottom = combined:GetBottom() * ces / ui
+		local screenRight = UIParent:GetRight()
+		-- az oszlopok kezdo (UIParent-hez kotott) ablakai
+		local firsts, minX = {}, nil
 		for _, name in ipairs(ContainerFrame1.bags) do
 			local fr = _G[name]
 			local point, rel, relPoint, x, y = fr:GetPoint(1)
 			if rel == UIParent or rel == fr:GetParent() then
-				fr:ClearAllPoints()
-				fr:SetPoint(point, rel, relPoint, (x or 0) - shift / fr:GetScale(), y)
+				table.insert(firsts, fr)
+				local xu = (x or 0) * fr:GetScale()
+				if not minX or xu < minX then minX = xu end
 			end
+		end
+		if #firsts == 0 then
+			if Bank.Dock then Bank.Dock() end
+			return
+		end
+		local xOff = CONTAINER_OFFSET_X or 0
+		local width = (-minX - xOff) + (CONTAINER_WIDTH or 192) * firsts[1]:GetScale()
+		local targetRight
+		if boxLeft - 6 >= width then
+			targetRight = boxLeft - 6                    -- balra a Box mellett
+		else
+			targetRight = boxRight + 6 + width           -- jobbra (ha balra nincs hely)
+		end
+		local deltaX = targetRight - (screenRight - xOff)
+		for _, fr in ipairs(firsts) do
+			local point, rel, relPoint, x = fr:GetPoint(1)
+			local fs = fr:GetScale()
+			fr:ClearAllPoints()
+			fr:SetPoint(point, rel, relPoint, (x or 0) + deltaX / fs, boxBottom / fs)
 		end
 		if Bank.Dock then Bank.Dock() end
 	end)
@@ -2542,7 +2576,7 @@ do
 		updateContainerFrameAnchors()
 	end)
 	combined:HookScript("OnDragStop", function()
-		if Bank.Dock then Bank.Dock() end
+		updateContainerFrameAnchors()      -- a gyari zsakablakok is kovessek
 	end)
 end
 
