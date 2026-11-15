@@ -2332,6 +2332,7 @@ OptSlider("bgAlpha", -266, 20, 100, 5, "Background opacity: %d%%",
 	function() combined:SetBackdropColor(BG_R, BG_G, BG_B, DB().bgAlpha) end)
 
 OptNote("Alt+Right-click an item to lock it.", -330)
+OptNote("Mail: Shift+Right-click attaches all similar items.", -344)
 
 local resetBtn = CreateFrame("Button", "ZBagToolsOptReset", opt, "UIPanelButtonTemplate")
 resetBtn:SetWidth(130)
@@ -2465,6 +2466,149 @@ hooksecurefunc("ContainerFrameItemButton_OnModifiedClick", function(self, button
 	RefreshAllBagViews()
 end)
 
+----------------------------------------------------------------
+-- Levelkuldes: Shift+jobb klikk egy (nem felszereles) itemen nyitott
+-- levelkuldo ablaknal -> az azonos altipusu itemeket (pl. minden herb,
+-- minden erc, minden szovet) is becsatolja, zsak-sorrendben, a kattintott
+-- itemmel kezdve. Az utolso melleklethelyet uresen hagyja. Lezart es
+-- soulbound itemet kihagy. Itt a Shift+jobb klikk NEM bontja a stacket
+-- (Shift+bal klikk tovabbra is bont); mashol minden marad a regiben.
+----------------------------------------------------------------
+
+do -- sajat hatokor (a fo blokkban korlatozott a lokalis valtozok szama)
+local MAIL_MAX = ATTACHMENTS_MAX_SEND or 12
+local mailQueue = {}
+local mailInfo = nil
+local mailRunner = CreateFrame("Frame")
+
+local function MailFreeSlots()
+	local used = 0
+	for i = 1, MAIL_MAX do
+		if GetSendMailItem(i) then
+			used = used + 1
+		end
+	end
+	return (MAIL_MAX - 1) - used          -- az utolsot uresen hagyjuk
+end
+
+local function MailFinish()
+	mailRunner:SetScript("OnUpdate", nil)
+	if not mailInfo then
+		return
+	end
+	local left = 0
+	for _, e in ipairs(mailQueue) do
+		if GetLink(e.bag, e.slot) == e.link then
+			left = left + 1
+		end
+	end
+	local msg = "Attached " .. mailInfo.done .. " " .. mailInfo.label .. " item(s)"
+	if left > 0 then
+		msg = msg .. " (" .. left .. " more left in bags, mail is full)"
+	end
+	p(msg .. ".")
+	mailQueue = {}
+	mailInfo = nil
+end
+
+local function MailStep()
+	if not (SendMailFrame and SendMailFrame:IsVisible()) or CursorHasItem() then
+		MailFinish()
+		return
+	end
+	if #mailQueue == 0 or MailFreeSlots() <= 0 then
+		MailFinish()
+		return
+	end
+	local e = table.remove(mailQueue, 1)
+	local _, _, locked = GetContainerItemInfo(e.bag, e.slot)
+	if GetLink(e.bag, e.slot) ~= e.link or locked then
+		return                              -- kozben elmozdult / mar csatolva
+	end
+	PickupContainerItem(e.bag, e.slot)
+	if CursorHasItem() then
+		ClickSendMailItemButton()
+		if CursorHasItem() then
+			ClearCursor()                     -- nem fogadta el (pl. nem kuldheto)
+		else
+			mailInfo.done = mailInfo.done + 1
+		end
+	end
+end
+
+local function MailSimilar(bag, slot)
+	local link = GetLink(bag, slot)
+	if not link then
+		return false
+	end
+	local _, _, _, _, _, itemType, subType, _, equipLoc = GetItemInfo(link)
+	if equipLoc and equipLoc ~= "" then
+		return false                          -- felszereles: marad a gyari (socket)
+	end
+	local function similar(l)
+		if subType and subType ~= "" then
+			local _, _, _, _, _, t2, s2, _, e2 = GetItemInfo(l)
+			return t2 == itemType and s2 == subType and (not e2 or e2 == "")
+		end
+		return ParseItemID(l) == ParseItemID(link)
+	end
+	local function usable(b, sl)
+		local l = GetLink(b, sl)
+		if not l or not similar(l) or IsLocked(b, sl) then
+			return nil
+		end
+		local _, _, locked = GetContainerItemInfo(b, sl)
+		local info = ScanSlot(b, sl)
+		if locked or (info and info.soulbound) then
+			return nil
+		end
+		return l
+	end
+
+	mailQueue = {}
+	local first = usable(bag, slot)
+	if first then
+		table.insert(mailQueue, {bag = bag, slot = slot, link = first})
+	end
+	for _, b in ipairs(BAGS) do
+		for sl = 1, (NumSlots(b) or 0) do
+			if not (b == bag and sl == slot) then
+				local l = usable(b, sl)
+				if l then
+					table.insert(mailQueue, {bag = b, slot = sl, link = l})
+				end
+			end
+		end
+	end
+	if #mailQueue == 0 then
+		p("Nothing to attach (locked or soulbound).")
+		return true
+	end
+	if MailFreeSlots() <= 0 then
+		p("The mail is full (the last attachment slot is kept free).")
+		mailQueue = {}
+		return true
+	end
+	mailInfo = {done = 0, label = (subType and subType ~= "") and subType or "matching"}
+	-- egy item kepkockankent, hogy a jatek biztosan kovesse
+	mailRunner:SetScript("OnUpdate", MailStep)
+	return true
+end
+
+local origModifiedClick = ContainerFrameItemButton_OnModifiedClick
+ContainerFrameItemButton_OnModifiedClick = function(self, button, ...)
+	if button == "RightButton" and IsShiftKeyDown() and not IsAltKeyDown() and not IsControlKeyDown()
+		and SendMailFrame and SendMailFrame:IsVisible() and not CursorHasItem() then
+		local parent = self:GetParent()
+		local bag = parent and parent:GetID()
+		if bag and bag >= 0 and bag <= 4 and MailSimilar(bag, self:GetID()) then
+			return
+		end
+	end
+	return origModifiedClick(self, button, ...)
+end
+end
+
 -- ha az egeret egy uj item fole viszed, azt mar "lattad"
 hooksecurefunc("ContainerFrameItemButton_OnEnter", function(self)
 	local parent = self:GetParent()
@@ -2541,6 +2685,16 @@ local function AddTooltipInfo(tt)
 				tt:AddLine("ZBag: locked (equipment set)", 0.4, 0.8, 1)
 				added = true
 			end
+		end
+	end
+
+	-- levelkuldes + lenyomott Shift: sugo a ket Shift-klikkhez (nem felszerelesen)
+	if IsShiftKeyDown() and SendMailFrame and SendMailFrame:IsVisible() and IsBagItemButton(owner) then
+		local _, _, _, _, _, _, subType, _, equipLoc = GetItemInfo(link)
+		if not equipLoc or equipLoc == "" then
+			tt:AddLine("Shift+Left-click: split stack", 0.6, 0.8, 1)
+			tt:AddLine("Shift+Right-click: attach all similar" .. ((subType and subType ~= "") and (" (" .. subType .. ")") or ""), 0.6, 0.8, 1)
+			added = true
 		end
 	end
 
@@ -2658,11 +2812,14 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		ClearScanCache()
 		RefreshAllBagViews()
 	elseif event == "MODIFIER_STATE_CHANGED" then
-		-- Shift/Ctrl lenyomasakor a Box ablak gombja alatti tooltip azonnal
-		-- frissul (osszehasonlitas, probababu kurzor)
+		-- Shift/Ctrl lenyomasakor a zsak-gomb alatti tooltip azonnal frissul
+		-- (osszehasonlitas, probababu kurzor, levelkuldesi sugo) - a Box
+		-- ablakban es a gyari zsakablakokban is
 		local focus = GetMouseFocus and GetMouseFocus()
-		if focus and combined:IsShown() and focus:GetParent() and focus:GetParent().zbHolder
-			and GetLink(focus:GetParent():GetID(), focus:GetID()) and not CursorHasItem() then
+		local parent = focus and focus.GetParent and focus:GetParent()
+		local bag = parent and parent.GetID and parent:GetID()
+		if focus and IsBagItemButton(focus) and focus:IsVisible() and bag and bag >= 0 and bag <= 4
+			and GetLink(bag, focus:GetID()) and not CursorHasItem() then
 			ContainerFrameItemButton_OnEnter(focus)
 		end
 	elseif event == "PLAYER_ENTERING_WORLD" then

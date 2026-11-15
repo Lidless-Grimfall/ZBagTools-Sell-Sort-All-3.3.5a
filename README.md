@@ -71,6 +71,12 @@ Items that belong to an Equipment Manager set are always locked automatically (t
 
 Adds `Bags: N` and `Bank: N` lines to item tooltips for the current character. The bank is read when you visit it, so the bank count shows the state from your last visit. With "Include alt characters" your other characters on the same realm are listed too (after you have logged in with them once). Left off by default because Carbonite can show the same.
 
+### Mail: attach all similar items (Shift+Right-click)
+
+With the mailbox's Send tab open, Shift+Right-click a non-gear item in your bags to attach it together with every item of the same subtype (e.g. all herbs, all ore and stone, all cloth), in bag order, starting with the clicked one. It fills up to 11 attachments and keeps the last slot free; locked, soulbound and already attached items are skipped, and the chat tells you if some were left in your bags. Hold Shift over such an item to see a reminder in its tooltip.
+
+At the mailbox, Shift+Left-click still splits stacks; everywhere else Shift+Right-click works as before. Works alongside Postal (its Alt+Left-click attaches a single item).
+
 ### Auto repair (Options)
 
 When enabled, your gear is repaired automatically whenever you open a vendor that can repair. With "Use guild bank funds first (experimental)" it tries the guild bank first and falls back to your own money if the guild bank didn't pay. If you can't afford the repair, it tells you how much is needed.
