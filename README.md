@@ -71,7 +71,7 @@ Sells every grey (poor quality) item in your bags in one click. Left-click only 
 
 ### Locked items (Alt+Right-click)
 
-Alt+Right-click an item (in the default bag windows or the combined window) to lock it; do it again to unlock. A gold lock marks locked items and their tooltip says so. The lock belongs to the item, not the slot: move the item and the lock moves with it (also between bags, when swapping, or with several identical items). If a locked item leaves your bags (equipped, banked) the lock waits and comes back with it. Sort never moves, merges or splits a locked item and selling never touches it. Locks are saved per character.
+Alt+Right-click an item to lock it — in your bags (default bag windows or the combined window) and in the bank (default bank window, bank bag windows or the bank Box); do it again to unlock. A gold lock marks locked items and their tooltip says so. The lock belongs to the item, not the slot: move the item and the lock moves with it (also between bags, between bags and bank, when swapping, or with several identical items). Locks on bank items stay put while the bank is closed. If a locked item leaves your bags (equipped, banked) the lock waits and comes back with it. Sort never moves, merges or splits a locked item and selling never touches it. Locks are saved per character.
 
 Items that belong to an Equipment Manager set are always locked automatically (tooltip: `ZBag: locked (equipment set)`).
 
