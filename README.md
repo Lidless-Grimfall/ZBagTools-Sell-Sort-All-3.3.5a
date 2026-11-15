@@ -28,7 +28,20 @@ The mode button cycles through three modes. The `B` key (and the Backpack icon o
 - Search box (by name) and two filter buttons next to it: **Resource** (ore icon: profession materials such as herbs, ore, cloth, leather, elemental and enchanting materials, raw gems) and **BOE** (coin icon: Bind on Equip items not yet bound, i.e. possible Auction House goods). Items that don't match fade out.
 - Bag bar at the bottom, in the same order as the default bag bar (bags 4-3-2-1): swap bags by dragging; hovering a bag icon highlights that bag's items.
 - Free slot counter and your money.
+- **Pos lock** (gold lock between the free slot counter and your money): gold = *Locked* (default), the window docks where the default bags open (bottom right, above the action bars) and can't be dragged; green with a glow = *Free*, drag it anywhere and its place is saved. While the combined window is open, default bag windows (e.g. bank bags in `All` bank mode) line up next to it.
 - Adjustable columns, scale and background opacity (see Options).
+
+### Bank views (own Bag / All / Box mode)
+
+The bank has its own mode, switched with the `Bag/All/Box` button next to `Sort` on the bank window (or in the bank Box header):
+
+| Mode | What opens at the banker |
+|------|--------------------------|
+| `Bag` | The default bank window (28 bank slots) |
+| `All` | The default bank window + every bank bag in its own window |
+| `Box` | One window with the 28 bank slots and all bank bags, the bank bag row (swap bags, unpurchased slots shown red) and a `Buy` button for new bank bag slots |
+
+In `Box` mode the default bank window doesn't open; close the bank with the bank Box's `X` or `Esc`. You can switch modes while standing at the banker. The bank Box docks to the left of the bag Box (or to its right if there is no room), otherwise next to the default bag windows. `Sort` on the bank works like the bag Sort, with the same Sort mode.
 
 ### Sort (`Sort` button / `/zsort`)
 
