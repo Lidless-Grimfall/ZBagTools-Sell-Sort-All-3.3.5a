@@ -169,6 +169,8 @@ end
 -- rak semmit a Sort. Ki/be: Alt+jobb klikk a sloton.
 ----------------------------------------------------------------
 
+local bankOpen = false     -- nyitva van-e a bank (a lakatok es a keszlet miatt kell)
+
 local function CharKey()
 	return (GetRealmName() or "?") .. "-" .. (UnitName("player") or "?")
 end
@@ -232,20 +234,30 @@ local function ReconcilePins()
 		return
 	end
 	local cur = {}
-	for _, bag in ipairs(BAGS) do
-		for slot = 1, (NumSlots(bag) or 0) do
-			cur[bag .. ":" .. slot] = GetLink(bag, slot)
+	local lists = bankOpen and {BAGS, {-1, 5, 6, 7, 8, 9, 10, 11}} or {BAGS}
+	for _, l in ipairs(lists) do
+		for _, bag in ipairs(l) do
+			for slot = 1, (NumSlots(bag) or 0) do
+				cur[bag .. ":" .. slot] = GetLink(bag, slot)
+			end
 		end
 	end
 	local list = Pins()
 	local taken = {}
+	-- zart banknal a bankban levo lakatokhoz nem nyulunk (nem latjuk a bankot)
+	local function inBank(k)
+		local b = k and tonumber(k:match("^(%-?%d+):"))
+		return b and (b == -1 or b >= 5)
+	end
 	for _, e in ipairs(list) do
 		if e.k and cur[e.k] == e.l then
 			taken[e.k] = true
 		end
 	end
 	for _, e in ipairs(list) do
-		if not (e.k and cur[e.k] == e.l) then
+		if not bankOpen and inBank(e.k) then
+			-- marad, ahol volt
+		elseif not (e.k and cur[e.k] == e.l) then
 			-- az item elmozdult: hova kerult? elobb az "ujonnan erkezett"
 			-- helyet keressuk (ott elozoleg nem ez az item volt)
 			local found
@@ -446,7 +458,6 @@ end
 ----------------------------------------------------------------
 
 local BANK_BAGS = {-1, 5, 6, 7, 8, 9, 10, 11}
-local bankOpen = false
 
 local function ScanContainers(list)
 	local t = {}
@@ -3005,16 +3016,22 @@ local function UpdateOpenContainerFrames()
 		local cf = _G["ContainerFrame" .. i]
 		if cf and cf:IsShown() then
 			local id = cf:GetID()
-			if id and id >= 0 and id <= 4 then
+			if id and id >= 0 and id <= 11 then
 				ContainerFrame_Update(cf)
 			end
+		end
+	end
+	if BankFrame and BankFrame:IsShown() and BankFrameItemButton_Update then
+		for i = 1, (NUM_BANKGENERIC_SLOTS or 28) do
+			local b = _G["BankFrameItem" .. i]
+			if b then BankFrameItemButton_Update(b) end
 		end
 	end
 end
 
 hooksecurefunc("ContainerFrame_Update", function(frame)
 	local bag = frame:GetID()
-	if not bag or bag < 0 or bag > 4 then
+	if not bag or bag < 0 or bag > 11 then
 		return
 	end
 	local name = frame:GetName()
@@ -3029,16 +3046,26 @@ end)
 RefreshAllBagViews = function()
 	RequestRefresh()
 	UpdateOpenContainerFrames()
+	if Bank.Request then Bank.Request() end
 end
 
--- Alt+jobb klikk egy sloton (gyari zsak es Box ablak is): vedett slot ki/be
-hooksecurefunc("ContainerFrameItemButton_OnModifiedClick", function(self, button)
-	if button ~= "RightButton" or not IsAltKeyDown() or IsShiftKeyDown() or IsControlKeyDown() then
-		return
-	end
-	local parent = self:GetParent()
-	local bag, slot = parent and parent:GetID(), self:GetID()
-	if not bag or bag < 0 or bag > 4 or not ZBagToolsDB then
+-- gyari bankablak slotjai: lakat / piros
+if BankFrameItemButton_Update then
+	hooksecurefunc("BankFrameItemButton_Update", function(button)
+		if button and not button.isBag then
+			DecorateButton(button, -1, button:GetID())
+		end
+	end)
+end
+
+-- Alt+jobb klikk egy itemen: lakat ki/be. Mukodik a zsakokban (gyari es Box),
+-- a bankzsak-ablakokban, a bank Boxban es a gyari bankablak 28 slotjan is.
+local function ValidBag(bag)
+	return bag and (bag == -1 or (bag >= 0 and bag <= 11))
+end
+
+local function TogglePin(bag, slot)
+	if not ValidBag(bag) or not ZBagToolsDB then
 		return
 	end
 	local pins = Pins()
@@ -3059,7 +3086,27 @@ hooksecurefunc("ContainerFrameItemButton_OnModifiedClick", function(self, button
 	table.insert(pins, {l = link, k = key})
 	p("Item locked: Sort won't move it and selling won't touch it; the lock moves with the item. Alt+Right-click again to unlock.")
 	RefreshAllBagViews()
+end
+
+local function IsPinClick(button)
+	return button == "RightButton" and IsAltKeyDown() and not IsShiftKeyDown() and not IsControlKeyDown()
+end
+
+hooksecurefunc("ContainerFrameItemButton_OnModifiedClick", function(self, button)
+	if IsPinClick(button) then
+		local parent = self:GetParent()
+		TogglePin(parent and parent:GetID(), self:GetID())
+	end
 end)
+
+-- gyari bankablak 28 slotja (a zsak-helyek nem)
+if BankFrameItemButtonGeneric_OnModifiedClick then
+	hooksecurefunc("BankFrameItemButtonGeneric_OnModifiedClick", function(self, button)
+		if IsPinClick(button) and not self.isBag then
+			TogglePin(-1, self:GetID())
+		end
+	end)
+end
 
 ----------------------------------------------------------------
 -- Levelkuldes: Shift+jobb klikk egy (nem felszereles) itemen nyitott
@@ -3258,7 +3305,17 @@ end
 
 local function IsBagItemButton(owner)
 	local n = owner and owner.GetName and owner:GetName()
-	return n and (n:find("^ContainerFrame%d+Item%d+$") or n:find("^ZBagToolsItem%d+_%d+$"))
+	return n and (n:find("^ContainerFrame%d+Item%d+$") or n:find("^ZBagToolsItem%-?%d+_%d+$")
+		or n:find("^BankFrameItem%d+$"))
+end
+
+local function BagOfButton(owner)
+	local n = owner:GetName() or ""
+	if n:find("^BankFrameItem") then
+		return -1
+	end
+	local parent = owner:GetParent()
+	return parent and parent:GetID()
 end
 
 local function AddTooltipInfo(tt)
@@ -3271,8 +3328,8 @@ local function AddTooltipInfo(tt)
 
 	local owner = tt:GetOwner()
 	if IsBagItemButton(owner) then
-		local bag = owner:GetParent() and owner:GetParent():GetID()
-		if bag and bag >= 0 and bag <= 4 then
+		local bag = BagOfButton(owner)
+		if bag and (bag == -1 or (bag >= 0 and bag <= 11)) then
 			if IsPinned(bag, owner:GetID()) then
 				tt:AddLine("ZBag: locked (Alt+Right-click to unlock)", 0.4, 0.8, 1)
 				added = true
@@ -3394,6 +3451,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		end
 	elseif event == "BANKFRAME_OPENED" then
 		bankOpen = true
+		ReconcilePins()              -- a bank tartalma mostantol lathato
 		RequestBankSave()
 		OpenModeView()
 		Bank.OnOpened()
@@ -3407,6 +3465,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		CloseAll()
 	elseif event == "PLAYERBANKSLOTS_CHANGED" or event == "PLAYERBANKBAGSLOTS_CHANGED" then
 		RequestBankSave()
+		RequestLowCheck()
 		Bank.Request()
 	elseif event == "PLAYER_LEVEL_UP" or event == "SKILL_LINES_CHANGED" or event == "EQUIPMENT_SETS_CHANGED" then
 		-- uj szint / fegyverismeret: ujra kell nezni, mi hasznalhato
@@ -3441,9 +3500,8 @@ events:SetScript("OnEvent", function(self, event, arg1)
 			end
 			if arg1 and (arg1 == -1 or arg1 >= 5) then
 				RequestBankSave()
-			else
-				RequestLowCheck()
 			end
+			RequestLowCheck()        -- lakatok kovetese (bankban is), szabad hely
 		end
 		RequestRefresh()
 		Bank.Request()
