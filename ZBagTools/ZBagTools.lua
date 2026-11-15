@@ -2610,9 +2610,11 @@ end
 	-- es a penzsor pereme is bele vannak rajzolva, ezert csak a "Bag Slots"
 	-- sor alatti sima savot hasznaljuk, eredeti aranyban egymas ala ismetelve
 	-- (minden masodikat tukrozve, hogy ne latszodjanak az illesztesek).
-	local STONE_L, STONE_R = 20 / 512, 396 / 512
-	local STONE_T, STONE_B = 396 / 512, 476 / 512
-	local STONE_W, STONE_H = 376, 80
+	-- (a kep 512x512, a bankablak kb. a felso 80%-at foglalja el; a penzsor
+	-- pereme ~0.80-nal van, a "Bag Slots" sor alatti sima ko ~0.65-0.75)
+	local STONE_L, STONE_R = 0.04, 0.78
+	local STONE_T, STONE_B = 0.65, 0.75
+	local STONE_W, STONE_H = (STONE_R - STONE_L) * 512, (STONE_B - STONE_T) * 512
 	local stones = {}
 	local stoneAlpha = 0.9
 	local function LayoutStone()
