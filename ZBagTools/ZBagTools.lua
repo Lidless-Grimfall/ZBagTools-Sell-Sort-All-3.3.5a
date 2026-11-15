@@ -2606,6 +2606,14 @@ do
 	box:SetHeight(200)
 	tinsert(UISpecialFrames, "ZBagToolsBank")
 
+	-- hatter: a gyari bankablak kofelulete (a fejlec es a penzsor nelkuli
+	-- kozepso resze), kinyujtva az ablak meretere
+	local stone = box:CreateTexture(nil, "BACKGROUND")
+	stone:SetTexture("Interface\\BankFrame\\UI-BankFrame")
+	stone:SetTexCoord(0.045, 0.78, 0.16, 0.90)
+	stone:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
+	stone:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -4, 4)
+
 	local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	title:SetPoint("LEFT", box, "TOPLEFT", 12, -18)
 	title:SetText("Bank")
@@ -2856,10 +2864,11 @@ do
 	end
 
 	box:SetScript("OnShow", function()
-		-- szurke, mint a gyari bankzsakok koves hattere, hogy ne olvadjon
-		-- ossze a (sotet) zsak Box ablakkal
-		box:SetBackdropColor(0.36, 0.36, 0.38, DB().bgAlpha or 0.9)
+		-- a kofelulet adja a hatteret (az atlatszosag csuszka erre hat),
+		-- a sotet alap csak alatta van
+		box:SetBackdropColor(0, 0, 0, (DB().bgAlpha or 0.9) * 0.5)
 		box:SetBackdropBorderColor(0.75, 0.75, 0.75, 1)
+		stone:SetAlpha(DB().bgAlpha or 0.9)
 		Layout()
 		Refresh()
 		Bank.Dock()
