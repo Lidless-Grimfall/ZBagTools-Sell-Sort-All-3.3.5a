@@ -2590,7 +2590,7 @@ end
 -- A bank Box a zsakok Box ablaka melle balra dokkol (ha az nincs nyitva:
 -- a gyari zsakablakok melle balra, vagy a zsakok helyere).
 ----------------------------------------------------------------
-do
+(function() -- sajat fuggveny-hatokor (a fo blokk lokalis-limitje miatt)
 	local BANK_LIST = {-1, 5, 6, 7, 8, 9, 10, 11}
 	local GRID_TOP_BANK = 36
 	local suppressClose = false
@@ -2606,13 +2606,49 @@ do
 	box:SetHeight(200)
 	tinsert(UISpecialFrames, "ZBagToolsBank")
 
-	-- hatter: a gyari bankablak kofelulete (a fejlec es a penzsor nelkuli
-	-- kozepso resze), kinyujtva az ablak meretere
-	local stone = box:CreateTexture(nil, "BACKGROUND")
-	stone:SetTexture("Interface\\BankFrame\\UI-BankFrame")
-	stone:SetTexCoord(0.045, 0.78, 0.16, 0.90)
-	stone:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
-	stone:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -4, 4)
+	-- hatter: a gyari bankablak sima kofelulete. A kepbe a slotok melyedesei
+	-- es a penzsor pereme is bele vannak rajzolva, ezert csak a "Bag Slots"
+	-- sor alatti sima savot hasznaljuk, eredeti aranyban egymas ala ismetelve
+	-- (minden masodikat tukrozve, hogy ne latszodjanak az illesztesek).
+	local STONE_L, STONE_R = 20 / 512, 396 / 512
+	local STONE_T, STONE_B = 396 / 512, 476 / 512
+	local STONE_W, STONE_H = 376, 80
+	local stones = {}
+	local stoneAlpha = 0.9
+	local function LayoutStone()
+		local w = box:GetWidth() - 8
+		local h = box:GetHeight() - 8
+		if w <= 0 or h <= 0 then return end
+		local pieceH = STONE_H * (w / STONE_W)
+		local n = math.ceil(h / pieceH)
+		for i = 1, math.max(n, #stones) do
+			local t = stones[i]
+			if i <= n then
+				if not t then
+					t = box:CreateTexture(nil, "BACKGROUND")
+					t:SetTexture("Interface\\BankFrame\\UI-BankFrame")
+					stones[i] = t
+				end
+				local top = (i - 1) * pieceH
+				local ph = math.min(pieceH, h - top)
+				local frac = ph / pieceH
+				t:ClearAllPoints()
+				t:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4 - top)
+				t:SetWidth(w)
+				t:SetHeight(ph)
+				local tb = STONE_T + (STONE_B - STONE_T) * frac
+				if i % 2 == 0 then
+					t:SetTexCoord(STONE_L, STONE_R, tb, STONE_T)   -- tukrozve
+				else
+					t:SetTexCoord(STONE_L, STONE_R, STONE_T, tb)
+				end
+				t:SetAlpha(stoneAlpha)
+				t:Show()
+			elseif t then
+				t:Hide()
+			end
+		end
+	end
 
 	local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	title:SetPoint("LEFT", box, "TOPLEFT", 12, -18)
@@ -2797,6 +2833,7 @@ do
 		local rows = math.max(1, math.ceil(index / cols))
 		box:SetWidth(math.max(MIN_WIDTH, PAD * 2 + cols * SLOT_SIZE + (cols - 1) * SLOT_GAP))
 		box:SetHeight(GRID_TOP_BANK + rows * SLOT_SIZE + (rows - 1) * SLOT_GAP + FOOTER)
+		LayoutStone()
 	end
 
 	local function Refresh()
@@ -2868,7 +2905,7 @@ do
 		-- a sotet alap csak alatta van
 		box:SetBackdropColor(0, 0, 0, (DB().bgAlpha or 0.9) * 0.5)
 		box:SetBackdropBorderColor(0.75, 0.75, 0.75, 1)
-		stone:SetAlpha(DB().bgAlpha or 0.9)
+		stoneAlpha = DB().bgAlpha or 0.9
 		Layout()
 		Refresh()
 		Bank.Dock()
@@ -2950,7 +2987,7 @@ do
 			if m == "all" then OpenBankBags() end
 		end
 	end
-end
+end)()
 
 ----------------------------------------------------------------
 -- Gyari zsakablakok: ugyanaz a diszites (vedett jel, piros, feny)
