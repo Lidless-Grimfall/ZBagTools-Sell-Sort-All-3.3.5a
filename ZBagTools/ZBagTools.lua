@@ -2652,8 +2652,12 @@ end
 		end
 	end
 
-	local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	-- nagyobb, narancs felirat, hogy ne olvadjon bele a kohatterbe
+	local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	title:SetPoint("LEFT", box, "TOPLEFT", 12, -18)
+	title:SetTextColor(1, 0.5, 0.1)
+	title:SetShadowColor(0, 0, 0, 1)
+	title:SetShadowOffset(1, -1)
 	title:SetText("Bank")
 
 	local close = CreateFrame("Button", "ZBagToolsBankClose", box, "UIPanelCloseButton")
