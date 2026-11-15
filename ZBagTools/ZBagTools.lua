@@ -108,7 +108,12 @@ local DEFAULTS = {
 	keepUncollected = true,     -- ...kiveve, ha a kinezete meg nincs osszegyujtve
 	tintUnusable = true, newGlow = true,
 	tipCounts = false, tipAlts = false,
+	boxLocked = true,           -- a Box ablak a gyari zsakok helyere dokkolva
+	bankMode = "bag",           -- bank nezet: bag | all | box
 }
+
+-- a bank nezetek (kesobb toltjuk fel)
+local Bank = {}
 
 -- kesobb definialt fuggvenyek (az opcios nezethez)
 local RefreshOptions, OpenOptions, RefreshAllBagViews
@@ -276,6 +281,8 @@ end
 --             (a "Requires Level" NEM ide tartozik: az atmeneti)
 ----------------------------------------------------------------
 
+local ClearScanCache, ScanSlot
+do -- sajat hatokor (max. 200 lokalis valtozo a fo blokkban)
 local scanTip = CreateFrame("GameTooltip", "ZBagToolsScanTip", nil, "GameTooltipTemplate")
 local scanCache = {}
 
@@ -293,7 +300,7 @@ local function IsRedText(fs)
 	return r and r > 0.95 and g < 0.2 and b < 0.2
 end
 
-local function ClearScanCache(bag)
+ClearScanCache = function(bag)
 	if bag == nil then
 		scanCache = {}
 		return
@@ -306,7 +313,7 @@ local function ClearScanCache(bag)
 	end
 end
 
-local function ScanSlot(bag, slot)
+ScanSlot = function(bag, slot)
 	local link = GetLink(bag, slot)
 	if not link then
 		return nil
@@ -323,7 +330,12 @@ local function ScanSlot(bag, slot)
 	local slotName = equipLoc and equipLoc ~= "" and _G[equipLoc]
 	scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
 	scanTip:ClearLines()
-	scanTip:SetBagItem(bag, slot)
+	if bag == -1 then
+		-- a bank fo slotjai nem "zsak": a jatek inventory-slotkent mutatja
+		scanTip:SetInventoryItem("player", BankButtonIDToInvSlotID(slot))
+	else
+		scanTip:SetBagItem(bag, slot)
+	end
 	for i = 2, scanTip:NumLines() do
 		local l = _G["ZBagToolsScanTipTextLeft" .. i]
 		local r = _G["ZBagToolsScanTipTextRight" .. i]
@@ -372,6 +384,7 @@ local function ScanSlot(bag, slot)
 	end
 	return info
 end
+end
 
 -- Equipment Manager szetthez tartozo item. Elsodlegesen a jatek sajat
 -- szett-nyilvantartasabol (GetEquipmentSetLocations: ez kovetkezik az itemet,
@@ -398,6 +411,8 @@ local function SetLocations()
 					local player, bank, bags, slot, bag = EquipmentManager_UnpackLocation(loc)
 					if bags and bag and slot then
 						setLocs[bag .. ":" .. slot] = true
+					elseif bank and slot and not bags then
+						setLocs["-1:" .. (slot - 39)] = true   -- bank fo slot (inventory 40-67)
 					end
 				end
 			end
@@ -584,7 +599,7 @@ local function DecorateButton(b, bag, slot)
 			icon:SetVertexColor(1, 1, 1)
 		end
 	end
-	if DB().newGlow and IsNewItem(ParseItemID(link)) then
+	if DB().newGlow and bag >= 0 and bag <= 4 and IsNewItem(ParseItemID(link)) then
 		b.zbGlow:Show()
 	else
 		b.zbGlow:Hide()
@@ -600,6 +615,8 @@ end
 -- nem osszevetheto (pl. ketkezes van rajtad), megtartjuk.
 ----------------------------------------------------------------
 
+local IsWorseThanEquipped
+do -- sajat hatokor (a fo blokkban max. 200 lokalis valtozo lehet)
 local EQUIP_SLOTS = {
 	INVTYPE_HEAD = {1}, INVTYPE_NECK = {2}, INVTYPE_SHOULDER = {3},
 	INVTYPE_CHEST = {5}, INVTYPE_ROBE = {5}, INVTYPE_WAIST = {6},
@@ -634,7 +651,7 @@ local function StatsWorse(cand, eq)
 	return worse
 end
 
-local function IsWorseThanEquipped(link, equipLoc)
+IsWorseThanEquipped = function(link, equipLoc)
 	local slots = EQUIP_SLOTS[equipLoc or ""]
 	if not slots or not GetItemStats then
 		return false
@@ -660,6 +677,8 @@ local function IsWorseThanEquipped(link, equipLoc)
 		end
 	end
 	return true
+end
+
 end
 
 ----------------------------------------------------------------
@@ -779,9 +798,12 @@ end
 -- pillanatkep az osszes slotrol, a rendezesi sorrendben:
 -- zsakok jobbrol balra (0 = Backpack, 1..4), zsakon belul slot 1 (bal felso)
 -- -> utolso slot (jobb also)
+-- melyik tarolokon dolgozik a Sort (zsakok vagy bank)
+local sortBags = BAGS
+
 local function Snapshot()
 	local list = {}
-	for _, bag in ipairs(BAGS) do
+	for _, bag in ipairs(sortBags) do
 		local n = NumSlots(bag) or 0
 		local bagType = BagType(bag)
 		for slot = 1, n do
@@ -802,7 +824,7 @@ local function BagsBusy()
 	if CursorHasItem() then
 		return true
 	end
-	for _, bag in ipairs(BAGS) do
+	for _, bag in ipairs(sortBags) do
 		local n = NumSlots(bag) or 0
 		for slot = 1, n do
 			local _, _, locked = SlotInfo(bag, slot)
@@ -999,6 +1021,8 @@ end
 --             -> altipus -> minoseg -> nev
 ----------------------------------------------------------------
 
+local ArrangeBags
+do -- sajat hatokor (a fo blokkban max. 200 lokalis valtozo lehet)
 local TYPE_ORDER = {
 	["Consumable"] = 1, ["Reagent"] = 2, ["Trade Goods"] = 3, ["Gem"] = 4,
 	["Glyph"] = 5, ["Recipe"] = 6, ["Weapon"] = 7, ["Armor"] = 8,
@@ -1043,7 +1067,7 @@ local function SameItem(a, b)
 	return a and b and a.link and b.link and a.link == b.link and a.count == b.count
 end
 
-local function ArrangeBags(mode)
+ArrangeBags = function(mode)
 	local list = Snapshot()
 	local groups, order = {}, {}
 	for _, s in ipairs(list) do
@@ -1094,6 +1118,8 @@ local function ArrangeBags(mode)
 		end
 	end
 	return moves
+end
+
 end
 
 local SORT_MAX_PASSES = 10
@@ -1150,7 +1176,8 @@ local function SortStep()
 end
 
 -- quiet = true: eladas utani auto Sort (0 valtozasnal nem ir a chatbe)
-local function StartSort(quiet)
+-- bags: melyik tarolok (alapbol a zsakok; a bank: {-1, 5..11})
+local function StartSort(quiet, bags)
 	if CursorHasItem and CursorHasItem() then
 		p("Put down the item on your cursor first.")
 		return
@@ -1158,6 +1185,7 @@ local function StartSort(quiet)
 	if sortState.running then
 		return
 	end
+	sortBags = bags or BAGS
 	sortState.running = true
 	sortState.quiet = quiet and true or false
 	sortState.phase = "merge"
@@ -1235,7 +1263,11 @@ combined:SetWidth(MIN_WIDTH)
 combined:SetHeight(200)
 tinsert(UISpecialFrames, "ZBagToolsCombined")   -- Esc bezarja
 
-combined:SetScript("OnDragStart", combined.StartMoving)
+combined:SetScript("OnDragStart", function(self)
+	if not DB().boxLocked then
+		self:StartMoving()
+	end
+end)
 combined:SetScript("OnDragStop", function(self)
 	self:StopMovingOrSizing()
 	local point, _, relPoint, x, y = self:GetPoint()
@@ -1244,10 +1276,21 @@ combined:SetScript("OnDragStop", function(self)
 	end
 end)
 
+-- Locked: a gyari zsakok helyere dokkol (jobbra lent, a gombsorok fole -
+-- ugyanazokkal az eltolasokkal, mint a jatek a zsakablakokat)
+local function DockBox()
+	local sc = combined:GetScale()
+	combined:ClearAllPoints()
+	combined:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -(CONTAINER_OFFSET_X or 0) / sc, (CONTAINER_OFFSET_Y or 70) / sc)
+end
+
 local function RestorePosition()
 	combined:ClearAllPoints()
 	local pt = ZBagToolsDB and ZBagToolsDB.point
-	if pt then
+	if DB().boxLocked then
+		combined:SetScale(DB().scale or 1)
+		DockBox()
+	elseif pt then
 		combined:SetPoint(pt[1], UIParent, pt[2], pt[3], pt[4])
 	else
 		combined:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -60, 100)
@@ -1360,7 +1403,8 @@ local function UpdateButton(b, bag, slot)
 	-- összehasonlítás csak akkor jönne, ha elviszed és visszahozod az egeret.
 	if GetMouseFocus and GetMouseFocus() == b and b:IsVisible() then
 		if texture and not CursorHasItem() then
-			ContainerFrameItemButton_OnEnter(b)
+			local onEnter = b:GetScript("OnEnter")
+			if onEnter then onEnter(b) end
 		elseif GameTooltip:IsOwned(b) then
 			GameTooltip:Hide()
 		end
@@ -1727,6 +1771,8 @@ end
 -- a zsakbol (a szerver visszaigazolta), vagy max. 3 mp utan.
 ----------------------------------------------------------------
 
+local SellAndSort, AutoRepair, ScheduleAutoSell
+do -- sajat hatokor
 local SELL_SORT_TIMEOUT = 3
 local AUTOSELL_DELAY = 0.3
 
@@ -1741,7 +1787,7 @@ local function SoldItemsGone(soldSlots)
 	return true
 end
 
-local function SellAndSort(auto)
+SellAndSort = function(auto)
 	local soldSlots = SellGrey(auto)
 	if #soldSlots == 0 or not DB().sortAfterSell then
 		return
@@ -1776,7 +1822,7 @@ local function RepairOwn(cost)
 	end
 end
 
-local function AutoRepair()
+AutoRepair = function()
 	if not DB().autoRepair then
 		return
 	end
@@ -1815,7 +1861,7 @@ end
 
 -- auto eladas kereskedo nyitasakor, kis kesleltetessel
 local autoSellTimer = CreateFrame("Frame")
-local function ScheduleAutoSell()
+ScheduleAutoSell = function()
 	if not DB().autoSell then
 		return
 	end
@@ -1829,6 +1875,7 @@ local function ScheduleAutoSell()
 			end
 		end
 	end)
+end
 end
 
 ----------------------------------------------------------------
@@ -2402,6 +2449,464 @@ OpenOptions = function()
 end
 
 ----------------------------------------------------------------
+-- Pos: Locked / Free kapcsolo a Box ablak aljan (lakat a penz mellett)
+-- Locked: a Box a gyari zsakok helyere dokkol (jobbra lent), nem huzhato.
+-- Free: szabadon huzhato, a helye mentodik.
+-- Ha a Box dokkolva es nyitva van, a gyari zsakablakok (pl. bankzsakok
+-- All modban) tole balra sorakoznak, nem ala.
+----------------------------------------------------------------
+do
+	local LOCK_TEX = "Interface\\LFGFrame\\UI-LFG-ICON-LOCK"
+	local posBtn = CreateFrame("Button", "ZBagToolsPosLock", combined)
+	posBtn:SetWidth(14)
+	posBtn:SetHeight(16)
+	posBtn:SetPoint("RIGHT", moneyText, "LEFT", -8, 1)
+	local layers = {}
+	for i = 1, 3 do
+		local t = posBtn:CreateTexture(nil, i == 1 and "ARTWORK" or "OVERLAY")
+		t:SetTexture(LOCK_TEX)
+		t:SetTexCoord(0, 0.71875, 0, 0.875)
+		t:SetAllPoints(posBtn)
+		if i > 1 then t:SetBlendMode("ADD") end
+		layers[i] = t
+	end
+	local glow = posBtn:CreateTexture(nil, "BACKGROUND")
+	glow:SetTexture("Interface\\Buttons\\CheckButtonHilight")
+	glow:SetBlendMode("ADD")
+	glow:SetPoint("TOPLEFT", posBtn, "TOPLEFT", -4, 4)
+	glow:SetPoint("BOTTOMRIGHT", posBtn, "BOTTOMRIGHT", 4, -4)
+	posBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+
+	local function UpdatePosBtn()
+		local r, g, b = 1, 0.82, 0              -- arany = Locked
+		if not DB().boxLocked then r, g, b = 0.3, 1, 0.3 end   -- zold + feny = Free
+		for _, t in ipairs(layers) do t:SetVertexColor(r, g, b) end
+		if DB().boxLocked then glow:Hide() else glow:Show() end
+	end
+	combined.UpdatePosBtn = UpdatePosBtn
+
+	local function ShowTip(self)
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText("Pos: " .. (DB().boxLocked and "Locked" or "Free"))
+		if DB().boxLocked then
+			GameTooltip:AddLine("Docked where the default bags open.", 1, 1, 1)
+			GameTooltip:AddLine("Click: free (drag the window anywhere)", 0.6, 0.8, 1)
+		else
+			GameTooltip:AddLine("Drag the window anywhere; its place is saved.", 1, 1, 1)
+			GameTooltip:AddLine("Click: lock (dock where the default bags open)", 0.6, 0.8, 1)
+		end
+		GameTooltip:Show()
+	end
+	posBtn:SetScript("OnEnter", ShowTip)
+	posBtn:SetScript("OnLeave", GameTooltip_Hide)
+	posBtn:SetScript("OnClick", function(self)
+		ZBagToolsDB.boxLocked = not DB().boxLocked
+		RestorePosition()
+		UpdatePosBtn()
+		updateContainerFrameAnchors()
+		if Bank.Dock then Bank.Dock() end
+		ShowTip(self)
+	end)
+
+	-- a jatek a gombsorok ki/be kapcsolasakor ujraszamolja az eltolast
+	hooksecurefunc("UIParent_ManageFramePositions", function()
+		if DB().boxLocked and combined:IsShown() then
+			DockBox()
+		end
+	end)
+
+	-- gyari zsakablakok a dokkolt Box mellett balra
+	hooksecurefunc("updateContainerFrameAnchors", function()
+		if not (combined:IsShown() and DB().boxLocked and ContainerFrame1.bags) then
+			if Bank.Dock then Bank.Dock() end
+			return
+		end
+		local shift = (combined:GetWidth() * combined:GetEffectiveScale() + 6) / UIParent:GetEffectiveScale()
+		for _, name in ipairs(ContainerFrame1.bags) do
+			local fr = _G[name]
+			local point, rel, relPoint, x, y = fr:GetPoint(1)
+			if rel == UIParent or rel == fr:GetParent() then
+				fr:ClearAllPoints()
+				fr:SetPoint(point, rel, relPoint, (x or 0) - shift / fr:GetScale(), y)
+			end
+		end
+		if Bank.Dock then Bank.Dock() end
+	end)
+
+	combined:HookScript("OnShow", function()
+		if DB().boxLocked then DockBox() end
+		UpdatePosBtn()
+		updateContainerFrameAnchors()
+	end)
+	combined:HookScript("OnHide", function()
+		updateContainerFrameAnchors()
+	end)
+	combined:HookScript("OnDragStop", function()
+		if Bank.Dock then Bank.Dock() end
+	end)
+end
+
+----------------------------------------------------------------
+-- Bank nezetek (sajat mod, kulon a zsakokétól):
+--  Bag : a gyari bankablak (28 fo slot)
+--  All : gyari bankablak + minden bankzsak kulon ablakban
+--  Box : kozos bank ablak (28 fo slot + 7 bankzsak), alul a bank
+--        zsaksorral es zsakhely-vasarlassal; a gyari bankablak ilyenkor
+--        meg sem jelenik, a bankot a Box X-e zarja.
+-- A bank Box a zsakok Box ablaka melle balra dokkol (ha az nincs nyitva:
+-- a gyari zsakablakok melle balra, vagy a zsakok helyere).
+----------------------------------------------------------------
+do
+	local BANK_LIST = {-1, 5, 6, 7, 8, 9, 10, 11}
+	local GRID_TOP_BANK = 36
+	local suppressClose = false
+
+	local box = CreateFrame("Frame", "ZBagToolsBank", UIParent)
+	box:Hide()
+	box:SetFrameStrata("HIGH")
+	box:SetToplevel(true)
+	box:SetClampedToScreen(true)
+	box:EnableMouse(true)
+	box:SetBackdrop(combined:GetBackdrop())
+	box:SetWidth(MIN_WIDTH)
+	box:SetHeight(200)
+	tinsert(UISpecialFrames, "ZBagToolsBank")
+
+	local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	title:SetPoint("LEFT", box, "TOPLEFT", 12, -18)
+	title:SetText("Bank")
+
+	local close = CreateFrame("Button", "ZBagToolsBankClose", box, "UIPanelCloseButton")
+	close:SetPoint("TOPRIGHT", box, "TOPRIGHT", -2, -2)
+	close:SetScript("OnClick", function() box:Hide() end)
+
+	local freeTxt = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+
+	local function Mode()
+		local m = DB().bankMode
+		if m ~= "bag" and m ~= "all" and m ~= "box" then m = "bag" end
+		return m
+	end
+
+	-- gombsor: Sort + mod (a Box fejleceben es a gyari bankablakban is)
+	local modeBtns = {}
+	local function UpdateModeBtns()
+		for _, b in ipairs(modeBtns) do b:SetText(MODE_LABEL[Mode()]) end
+	end
+	local BANK_DESC = {
+		bag = "bank window only",
+		all = "bank window + every bank bag",
+		box = "bank and bank bags in one window",
+	}
+	local function ModeTip(self)
+		local m, n = Mode(), NextMode(Mode())
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText("Bank mode: " .. MODE_LABEL[m])
+		GameTooltip:AddLine(BANK_DESC[m], 1, 1, 1)
+		GameTooltip:AddLine("Click: switch to " .. MODE_LABEL[n] .. " (" .. BANK_DESC[n] .. ")", 0.6, 0.8, 1)
+		GameTooltip:Show()
+	end
+
+	local function MakeBar(name, parent)
+		local bar = CreateFrame("Frame", name, parent)
+		bar:SetWidth(78)
+		bar:SetHeight(20)
+		local sort = CreateFrame("Button", name .. "Sort", bar, "UIPanelButtonTemplate")
+		sort:SetWidth(38)
+		sort:SetHeight(20)
+		sort:SetText("Sort")
+		sort:SetPoint("LEFT", bar, "LEFT", 0, 0)
+		sort:SetScript("OnClick", function() StartSort(false, BANK_LIST) end)
+		SimpleTooltip(sort, "Sort bank",
+			"1. Merge partial stacks",
+			"2. Move items into fitting special bank bags",
+			"3. Fill gaps or sort by type (see Options)")
+		local mode = CreateFrame("Button", name .. "Mode", bar, "UIPanelButtonTemplate")
+		mode:SetWidth(38)
+		mode:SetHeight(20)
+		mode:SetPoint("LEFT", sort, "RIGHT", 2, 0)
+		mode:SetScript("OnClick", function(self)
+			Bank.SetMode(NextMode(Mode()))
+			if self:IsVisible() and GameTooltip:IsOwned(self) then ModeTip(self) end
+		end)
+		mode:SetScript("OnEnter", ModeTip)
+		mode:SetScript("OnLeave", GameTooltip_Hide)
+		table.insert(modeBtns, mode)
+		return bar
+	end
+
+	local boxBarB = MakeBar("ZBagToolsBankBar", box)
+	boxBarB:SetPoint("LEFT", title, "RIGHT", 10, 0)
+	local gyariBar = MakeBar("ZBagToolsBankFrameBar", BankFrame)
+	gyariBar:SetPoint("TOPRIGHT", BankFrame, "TOPRIGHT", -50, -45)
+
+	-- bankzsak sor (7 hely) + zsakhely vasarlas
+	local bagBtns = {}
+	local BB = 24
+	for i = 1, 7 do
+		local bag = 4 + i
+		local bb = CreateFrame("Button", "ZBagToolsBankBagSlot" .. i, box)
+		bb:SetWidth(BB)
+		bb:SetHeight(BB)
+		bb:SetPoint("BOTTOMLEFT", box, "BOTTOMLEFT", PAD + 2 + (i - 1) * (BB + 2), PAD + 2)
+		bb.icon = bb:CreateTexture(nil, "ARTWORK")
+		bb.icon:SetAllPoints(bb)
+		bb:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+		bb:RegisterForDrag("LeftButton")
+		local function inv() return ContainerIDToInventoryID(bag) end
+		bb:SetScript("OnClick", function()
+			if i > (GetNumBankSlots()) then return end
+			if CursorHasItem() then PutItemInBag(inv()) else PickupBagFromSlot(inv()) end
+		end)
+		bb:SetScript("OnReceiveDrag", function() if i <= (GetNumBankSlots()) then PutItemInBag(inv()) end end)
+		bb:SetScript("OnDragStart", function() if i <= (GetNumBankSlots()) then PickupBagFromSlot(inv()) end end)
+		bb:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_TOP")
+			if i > (GetNumBankSlots()) then
+				GameTooltip:SetText("Bank bag slot not purchased yet")
+			elseif not GameTooltip:SetInventoryItem("player", inv()) then
+				GameTooltip:SetText("Empty bank bag slot")
+			end
+			GameTooltip:Show()
+		end)
+		bb:SetScript("OnLeave", GameTooltip_Hide)
+		bagBtns[i] = bb
+	end
+
+	local buy = CreateFrame("Button", "ZBagToolsBankBuy", box, "UIPanelButtonTemplate")
+	buy:SetWidth(36)
+	buy:SetHeight(20)
+	buy:SetText("Buy")
+	buy:SetPoint("LEFT", bagBtns[7], "RIGHT", 6, 0)
+	buy:SetScript("OnClick", function()
+		local n, full = GetNumBankSlots()
+		if full then return end
+		BankFrame.nextSlotCost = GetBankSlotCost(n)
+		StaticPopup_Show("CONFIRM_BUY_BANK_SLOT")
+	end)
+	buy:SetScript("OnEnter", function(self)
+		local n, full = GetNumBankSlots()
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText("Buy a bank bag slot")
+		if not full then GameTooltip:AddLine("Cost: " .. FormatMoney(GetBankSlotCost(n)), 1, 1, 1) end
+		GameTooltip:Show()
+	end)
+	buy:SetScript("OnLeave", GameTooltip_Hide)
+	freeTxt:SetPoint("LEFT", buy, "RIGHT", 8, 0)
+
+	local function UpdateBagRow()
+		local n, full = GetNumBankSlots()
+		for i = 1, 7 do
+			local bb = bagBtns[i]
+			local tex = GetInventoryItemTexture("player", ContainerIDToInventoryID(4 + i))
+			bb.icon:SetTexture(tex or "Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag")
+			if i > (n or 0) then bb.icon:SetVertexColor(1, 0.2, 0.2) else bb.icon:SetVertexColor(1, 1, 1) end
+		end
+		if full then buy:Hide() else buy:Show() end
+	end
+
+	-- a bank holderei (ID = tarolo) a kozos holders/buttons tablakba kerulnek,
+	-- igy ugyanaz a GetButton / UpdateButton szolgal ki
+	for _, bag in ipairs(BANK_LIST) do
+		local h = CreateFrame("Frame", "ZBagToolsHolder" .. (bag < 0 and "Bank" or bag), box)
+		h:SetID(bag)
+		h:SetAllPoints(box)
+		holders[bag] = h
+		buttons[bag] = {}
+	end
+
+	-- a bank fo slotjai (-1) a jatekban inventory-slotok: sajat tooltip kell
+	local function BankMainEnter(self)
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		if GameTooltip:SetInventoryItem("player", BankButtonIDToInvSlotID(self:GetID())) then
+			GameTooltip:Show()
+		else
+			GameTooltip:Hide()
+		end
+	end
+
+	local function GetBankButton(bag, slot)
+		local b = GetButton(bag, slot)
+		if bag == -1 and not b.zbBankFix then
+			b:SetScript("OnEnter", BankMainEnter)
+			b.UpdateTooltip = BankMainEnter
+			b.zbBankFix = true
+		end
+		return b
+	end
+
+	local lastSizes = {}
+	local function Layout()
+		local cols = DB().cols or DEFAULTS.cols
+		local index = 0
+		for _, bag in ipairs(BANK_LIST) do
+			local n = NumSlots(bag) or 0
+			lastSizes[bag] = n
+			for slot = 1, n do
+				local b = GetBankButton(bag, slot)
+				b:ClearAllPoints()
+				b:SetPoint("TOPLEFT", box, "TOPLEFT", PAD + (index % cols) * (SLOT_SIZE + SLOT_GAP),
+					-GRID_TOP_BANK - math.floor(index / cols) * (SLOT_SIZE + SLOT_GAP))
+				b:Show()
+				index = index + 1
+			end
+			for slot = n + 1, #buttons[bag] do buttons[bag][slot]:Hide() end
+		end
+		local rows = math.max(1, math.ceil(index / cols))
+		box:SetWidth(math.max(MIN_WIDTH, PAD * 2 + cols * SLOT_SIZE + (cols - 1) * SLOT_GAP))
+		box:SetHeight(GRID_TOP_BANK + rows * SLOT_SIZE + (rows - 1) * SLOT_GAP + FOOTER)
+	end
+
+	local function Refresh()
+		if not box:IsShown() then return end
+		for _, bag in ipairs(BANK_LIST) do
+			if (NumSlots(bag) or 0) ~= lastSizes[bag] then Layout() break end
+		end
+		local free, total = 0, 0
+		for _, bag in ipairs(BANK_LIST) do
+			local n = NumSlots(bag) or 0
+			total = total + n
+			free = free + (FreeSlots(bag))
+			for slot = 1, n do UpdateButton(buttons[bag][slot], bag, slot) end
+		end
+		freeTxt:SetText(string.format("Free: %d / %d", free, total))
+		UpdateBagRow()
+	end
+
+	local pending = false
+	local ticker = CreateFrame("Frame")
+	function Bank.Request()
+		if pending or not box:IsShown() then return end
+		pending = true
+		ticker:SetScript("OnUpdate", function(self)
+			self:SetScript("OnUpdate", nil)
+			pending = false
+			Refresh()
+		end)
+	end
+
+	-- dokkolas: a zsakok Box ablaka mellett balra (ha nincs hely: jobbra);
+	-- ha az nincs nyitva: a legbaloldalibb gyari zsakablak mellett balra,
+	-- kulonben a zsakok helyere
+	local anchorHelper = CreateFrame("Frame", nil, UIParent)
+	function Bank.Dock()
+		if not box:IsShown() then return end
+		box:SetScale(DB().scale or 1)
+		box:ClearAllPoints()
+		if combined:IsShown() then
+			local left = (combined:GetLeft() or 0) * combined:GetEffectiveScale()
+			if left >= box:GetWidth() * box:GetEffectiveScale() + 8 then
+				box:SetPoint("BOTTOMRIGHT", combined, "BOTTOMLEFT", -6, 0)
+			else
+				box:SetPoint("BOTTOMLEFT", combined, "BOTTOMRIGHT", 6, 0)
+			end
+			return
+		end
+		local leftmost, minLeft
+		for i = 1, (NUM_CONTAINER_FRAMES or 13) do
+			local cf = _G["ContainerFrame" .. i]
+			if cf and cf:IsShown() then
+				local l = cf:GetLeft() and cf:GetLeft() * cf:GetEffectiveScale()
+				if l and (not minLeft or l < minLeft) then leftmost, minLeft = cf, l end
+			end
+		end
+		local sc = box:GetScale()
+		if leftmost then
+			anchorHelper:ClearAllPoints()
+			anchorHelper:SetPoint("TOPLEFT", leftmost, "TOPLEFT", 0, 0)
+			anchorHelper:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", 0, CONTAINER_OFFSET_Y or 70)
+			box:SetPoint("BOTTOMRIGHT", anchorHelper, "BOTTOMLEFT", -6, 0)
+		else
+			box:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -(CONTAINER_OFFSET_X or 0) / sc, (CONTAINER_OFFSET_Y or 70) / sc)
+		end
+	end
+
+	box:SetScript("OnShow", function()
+		box:SetBackdropColor(BG_R, BG_G, BG_B, DB().bgAlpha or 0.9)
+		Layout()
+		Refresh()
+		Bank.Dock()
+	end)
+	box:SetScript("OnHide", function()
+		if bankOpen and not suppressClose then
+			CloseBankFrame()               -- a Box bezarasa = a bank bezarasa
+		end
+	end)
+
+	local function OpenBankBags()
+		for bag = 5, 11 do
+			if (NumSlots(bag) or 0) > 0 and not IsBagOpen(bag) then OpenBag(bag) end
+		end
+	end
+
+	-- a gyari bankablakot ugy rejtjuk el, hogy a bank nyitva maradjon
+	local function HideBankFrameKeepOpen()
+		if BankFrame:IsShown() then
+			local cbf = CloseBankFrame
+			CloseBankFrame = function() end
+			HideUIPanel(BankFrame)
+			CloseBankFrame = cbf
+		end
+	end
+
+	local function ApplyBankFrameEvent()
+		if Mode() == "box" then
+			BankFrame:UnregisterEvent("BANKFRAME_OPENED")
+		else
+			BankFrame:RegisterEvent("BANKFRAME_OPENED")
+		end
+	end
+
+	function Bank.Init()
+		ApplyBankFrameEvent()
+		UpdateModeBtns()
+	end
+
+	function Bank.OnOpened()
+		local m = Mode()
+		if m == "box" then
+			box:Show()
+		elseif m == "all" then
+			OpenBankBags()
+		end
+	end
+
+	function Bank.OnClosed()
+		suppressClose = true
+		box:Hide()
+		suppressClose = false
+		if CloseBankBagFrames then CloseBankBagFrames() end
+	end
+
+	function Bank.SetMode(m)
+		local old = Mode()
+		ZBagToolsDB.bankMode = m
+		ApplyBankFrameEvent()
+		UpdateModeBtns()
+		if not bankOpen or old == m then return end
+		-- regi nezet le
+		if old == "box" then
+			suppressClose = true
+			box:Hide()
+			suppressClose = false
+		else
+			if CloseBankBagFrames then CloseBankBagFrames() end
+			if m == "box" then HideBankFrameKeepOpen() end
+		end
+		-- uj nezet fel
+		if m == "box" then
+			box:Show()
+		else
+			if not BankFrame:IsShown() then
+				BankFrameTitleText:SetText(UnitName("npc") or "Bank")
+				ShowUIPanel(BankFrame)
+			end
+			if m == "all" then OpenBankBags() end
+		end
+	end
+end
+
+----------------------------------------------------------------
 -- Gyari zsakablakok: ugyanaz a diszites (vedett jel, piros, feny)
 ----------------------------------------------------------------
 
@@ -2758,6 +3263,7 @@ events:RegisterEvent("UNIT_INVENTORY_CHANGED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("MODIFIER_STATE_CHANGED")
 events:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
+events:RegisterEvent("PLAYERBANKBAGSLOTS_CHANGED")
 events:RegisterEvent("PLAYER_LEVEL_UP")
 events:RegisterEvent("SKILL_LINES_CHANGED")
 events:RegisterEvent("EQUIPMENT_SETS_CHANGED")
@@ -2781,6 +3287,8 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		RestorePosition()
 		UpdateModeButtons()
 		UpdateSellButtons()
+		Bank.Init()
+		combined.UpdatePosBtn()
 		self:UnregisterEvent("ADDON_LOADED")
 	elseif event == "MERCHANT_SHOW" then
 		atMerchant = true
@@ -2798,15 +3306,18 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		bankOpen = true
 		RequestBankSave()
 		OpenModeView()
+		Bank.OnOpened()
 	elseif event == "BANKFRAME_CLOSED" then
+		Bank.OnClosed()
 		bankOpen = false
 		CloseAll()
 	elseif event == "MAIL_SHOW" then
 		OpenModeView()
 	elseif event == "MAIL_CLOSED" then
 		CloseAll()
-	elseif event == "PLAYERBANKSLOTS_CHANGED" then
+	elseif event == "PLAYERBANKSLOTS_CHANGED" or event == "PLAYERBANKBAGSLOTS_CHANGED" then
 		RequestBankSave()
+		Bank.Request()
 	elseif event == "PLAYER_LEVEL_UP" or event == "SKILL_LINES_CHANGED" or event == "EQUIPMENT_SETS_CHANGED" then
 		-- uj szint / fegyverismeret: ujra kell nezni, mi hasznalhato
 		ClearScanCache()
@@ -2845,6 +3356,7 @@ events:SetScript("OnEvent", function(self, event, arg1)
 			end
 		end
 		RequestRefresh()
+		Bank.Request()
 	end
 end)
 
