@@ -90,6 +90,10 @@ With the mailbox's Send tab open, Shift+Right-click a non-gear item in your bags
 
 At the mailbox, Shift+Left-click still splits stacks; everywhere else Shift+Right-click works as before. Works alongside Postal (its Alt+Left-click attaches a single item).
 
+### Bank: move all similar items (Shift+Right-click)
+
+With the bank open, Shift+Right-click a non-gear item to move it together with every item of the same subtype to the other side: from your bags to the bank, or from the bank (default bank window, bank bag windows or bank Box) to your bags. Items are moved one by one, partial stacks are merged by the game, and 1 free slot is always kept on the destination; the chat tells you what was moved and what was left (e.g. `Moved 4 Simple Gem item(s) to bank.`). Locked, soulbound and unique quest items are skipped. Hold Shift over such an item to see the direction in its tooltip. At the bank, Shift+Left-click still splits stacks.
+
 ### Auto repair (Options)
 
 When enabled, your gear is repaired automatically whenever you open a vendor that can repair. With "Use guild bank funds first (experimental)" it tries the guild bank first and falls back to your own money if the guild bank didn't pay. If you can't afford the repair, it tells you how much is needed.
