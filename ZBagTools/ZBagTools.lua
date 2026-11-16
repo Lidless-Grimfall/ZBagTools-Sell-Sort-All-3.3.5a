@@ -18,6 +18,18 @@ local function GetLink(bag, slot)
 	return GetContainerItemLink(bag, slot)
 end
 
+-- az altipus neve a chat/tooltip szovegekhez; dragakoveknel a tipus is
+-- melle kerul ("Simple" -> "Simple Gem"), hogy erthetobb legyen
+local function SubTypeLabel(itemType, subType)
+	if not subType or subType == "" then
+		return "matching"
+	end
+	if itemType == "Gem" and subType ~= "Gem" then
+		return subType .. " Gem"
+	end
+	return subType
+end
+
 local function ParseItemID(link)
 	if not link then return nil end
 	local id = link:match("item:(%d+)")
@@ -3231,7 +3243,7 @@ local function MailSimilar(bag, slot)
 		mailQueue = {}
 		return true
 	end
-	mailInfo = {done = 0, label = (subType and subType ~= "") and subType or "matching"}
+	mailInfo = {done = 0, label = SubTypeLabel(itemType, subType)}
 	-- egy item kepkockankent, hogy a jatek biztosan kovesse
 	mailRunner:SetScript("OnUpdate", MailStep)
 	return true
@@ -3358,7 +3370,7 @@ local function BankMoveSimilar(bag, slot)
 	end
 	moveInfo = {
 		done = 0,
-		label = (subType and subType ~= "") and subType or "matching",
+		label = SubTypeLabel(itemType, subType),
 		where = toBank and "bank" or "bags",
 		dest = toBank and BANK_SIDE or BAGS,
 	}
@@ -3493,10 +3505,10 @@ local function AddTooltipInfo(tt)
 	-- levelkuldes / bank + lenyomott Shift: sugo a ket Shift-klikkhez (nem felszerelesen)
 	local mailOpen = SendMailFrame and SendMailFrame:IsVisible()
 	if IsShiftKeyDown() and (mailOpen or bankOpen) and IsBagItemButton(owner) then
-		local _, _, _, _, _, _, subType, _, equipLoc = GetItemInfo(link)
+		local _, _, _, _, _, itemType, subType, _, equipLoc = GetItemInfo(link)
 		local bag = BagOfButton(owner)
 		if (not equipLoc or equipLoc == "") and bag and not (mailOpen and (bag < 0 or bag > 4)) then
-			local what = (subType and subType ~= "") and (" (" .. subType .. ")") or ""
+			local what = (subType and subType ~= "") and (" (" .. SubTypeLabel(itemType, subType) .. ")") or ""
 			local action
 			if mailOpen then
 				action = "attach all similar"
