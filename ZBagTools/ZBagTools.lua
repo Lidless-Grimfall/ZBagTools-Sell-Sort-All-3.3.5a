@@ -18,6 +18,18 @@ local function GetLink(bag, slot)
 	return GetContainerItemLink(bag, slot)
 end
 
+-- az altipus neve a chat/tooltip szovegekhez; dragakoveknel a tipus is
+-- melle kerul ("Simple" -> "Simple Gem"), hogy erthetobb legyen
+local function SubTypeLabel(itemType, subType)
+	if not subType or subType == "" then
+		return "matching"
+	end
+	if itemType == "Gem" and subType ~= "Gem" then
+		return subType .. " Gem"
+	end
+	return subType
+end
+
 local function ParseItemID(link)
 	if not link then return nil end
 	local id = link:match("item:(%d+)")
@@ -306,6 +318,7 @@ local TXT_USE = ITEM_SPELL_TRIGGER_ONUSE or "Use:"
 local TXT_PROC = ITEM_SPELL_TRIGGER_ONPROC or "Chance on hit:"
 local TXT_EQUIP = ITEM_SPELL_TRIGGER_ONEQUIP or "Equip:"
 local TXT_EQSET = (EQUIPMENT_SETS or "Equipment Sets: %s"):gsub("%%s", "")
+local TXT_UNIQUE = ITEM_UNIQUE or "Unique"
 
 local function IsRedText(fs)
 	local r, g, b = fs:GetTextColor()
@@ -373,6 +386,9 @@ ScanSlot = function(bag, slot)
 			end
 			if lt:sub(1, #TXT_EQSET) == TXT_EQSET then
 				info.equipSet = true
+			end
+			if lt:sub(1, #TXT_UNIQUE) == TXT_UNIQUE then
+				info.unique = true            -- "Unique", "Unique (5)", "Unique-Equipped"
 			end
 			if IsRedText(l) then
 				info.red = true
@@ -3231,23 +3247,181 @@ local function MailSimilar(bag, slot)
 		mailQueue = {}
 		return true
 	end
-	mailInfo = {done = 0, label = (subType and subType ~= "") and subType or "matching"}
+	mailInfo = {done = 0, label = SubTypeLabel(itemType, subType)}
 	-- egy item kepkockankent, hogy a jatek biztosan kovesse
 	mailRunner:SetScript("OnUpdate", MailStep)
 	return true
 end
 
+----------------------------------------------------------------
+-- Bank: Shift+jobb klikk nyitott banknal -> az azonos altipusu itemek
+-- atkerulnek a masik oldalra (zsakbol a bankba, bankbol a zsakba).
+-- Ugyanazokon az itemeken mukodik, mint a levelkuldes (nem felszereles,
+-- nem lezart, nem soulbound). A celhelyen 1 szabad hely mindig marad.
+-- A jatek gyari jobb klikkje (UseContainerItem) visz at egy itemet, a
+-- reszleges stackeket is a jatek rakja ossze.
+----------------------------------------------------------------
+
+local BANK_SIDE = {-1, 5, 6, 7, 8, 9, 10, 11}
+local moveQueue, moveInfo = {}, nil
+local moveRunner = CreateFrame("Frame")
+
+local function IsBankBag(bag)
+	return bag == -1 or (bag >= 5 and bag <= 11)
+end
+
+-- hany szabad hely van a celoldalon, ahova ez az item befer
+-- (+ van-e azonos itembol reszleges stack, amibe az egesz belefer)
+local function DestRoom(dest, link, count)
+	local free, stackRoom = 0, false
+	local id = ParseItemID(link)
+	local _, _, _, _, _, _, _, maxStack = GetItemInfo(link)
+	for _, bag in ipairs(dest) do
+		local n = NumSlots(bag) or 0
+		if n > 0 then
+			local f, bagType = FreeSlots(bag)
+			if bagType == 0 or ItemFitsBag(link, bagType) then
+				free = free + (f or 0)
+				if maxStack and maxStack > 1 then
+					for slot = 1, n do
+						local sid, scount = SlotInfo(bag, slot)
+						if sid == id and scount and maxStack - scount >= (count or 1) then
+							stackRoom = true
+						end
+					end
+				end
+			end
+		end
+	end
+	return free, stackRoom
+end
+
+local function MoveFinish()
+	moveRunner:SetScript("OnUpdate", nil)
+	if not moveInfo then return end
+	local left = 0
+	for _, e in ipairs(moveQueue) do
+		if GetLink(e.bag, e.slot) == e.link then left = left + 1 end
+	end
+	local msg = "Moved " .. moveInfo.done .. " " .. moveInfo.label .. " item(s) to " .. moveInfo.where
+	if left > 0 then
+		msg = msg .. " (" .. left .. " left, " .. moveInfo.where .. " is full)"
+	end
+	p(msg .. ".")
+	moveQueue, moveInfo = {}, nil
+end
+
+local function MoveStep()
+	if not bankOpen or CursorHasItem() or #moveQueue == 0 then
+		MoveFinish()
+		return
+	end
+	local e = moveQueue[1]
+	local _, _, locked = GetContainerItemInfo(e.bag, e.slot)
+	if GetLink(e.bag, e.slot) ~= e.link or locked then
+		table.remove(moveQueue, 1)            -- kozben elmozdult / folyamatban
+		return
+	end
+	local _, count = SlotInfo(e.bag, e.slot)
+	local free, stackRoom = DestRoom(moveInfo.dest, e.link, count)
+	if free <= 1 and not stackRoom then
+		MoveFinish()                          -- 1 szabad hely marad a celoldalon
+		return
+	end
+	table.remove(moveQueue, 1)
+	UseSlot(e.bag, e.slot)                    -- gyari: nyitott banknal atviszi
+	moveInfo.done = moveInfo.done + 1
+end
+
+local function BankMoveSimilar(bag, slot)
+	local link = GetLink(bag, slot)
+	if not link then return false end
+	local _, _, _, _, _, itemType, subType, _, equipLoc = GetItemInfo(link)
+	if equipLoc and equipLoc ~= "" then
+		return false                          -- felszereles: marad a gyari
+	end
+	local function uniqueQuest(b, sl, t)
+		if t ~= "Quest" then return false end
+		local info = ScanSlot(b, sl)
+		return info and info.unique
+	end
+	if uniqueQuest(bag, slot, itemType) then
+		return false                          -- egyedi quest item: nincs tomeges athelyezes
+	end
+	local toBank = not IsBankBag(bag)
+	local src = toBank and BAGS or BANK_SIDE
+	local function similar(l)
+		if subType and subType ~= "" then
+			local _, _, _, _, _, t2, s2, _, e2 = GetItemInfo(l)
+			return t2 == itemType and s2 == subType and (not e2 or e2 == "")
+		end
+		return ParseItemID(l) == ParseItemID(link)
+	end
+	local function usable(b, sl)
+		local l = GetLink(b, sl)
+		if not l or not similar(l) or IsLocked(b, sl) then return nil end
+		local _, _, locked = GetContainerItemInfo(b, sl)
+		local info = ScanSlot(b, sl)
+		if locked or (info and info.soulbound) or uniqueQuest(b, sl, itemType) then return nil end
+		return l
+	end
+	moveQueue = {}
+	local first = usable(bag, slot)
+	if first then table.insert(moveQueue, {bag = bag, slot = slot, link = first}) end
+	for _, b in ipairs(src) do
+		for sl = 1, (NumSlots(b) or 0) do
+			if not (b == bag and sl == slot) then
+				local l = usable(b, sl)
+				if l then table.insert(moveQueue, {bag = b, slot = sl, link = l}) end
+			end
+		end
+	end
+	if #moveQueue == 0 then
+		p("Nothing to move (locked or soulbound).")
+		return true
+	end
+	moveInfo = {
+		done = 0,
+		label = SubTypeLabel(itemType, subType),
+		where = toBank and "bank" or "bags",
+		dest = toBank and BANK_SIDE or BAGS,
+	}
+	moveRunner:SetScript("OnUpdate", MoveStep)
+	return true
+end
+
+local function IsShiftRight(button)
+	return button == "RightButton" and IsShiftKeyDown() and not IsAltKeyDown() and not IsControlKeyDown()
+		and not CursorHasItem()
+end
+
 local origModifiedClick = ContainerFrameItemButton_OnModifiedClick
 ContainerFrameItemButton_OnModifiedClick = function(self, button, ...)
-	if button == "RightButton" and IsShiftKeyDown() and not IsAltKeyDown() and not IsControlKeyDown()
-		and SendMailFrame and SendMailFrame:IsVisible() and not CursorHasItem() then
+	if IsShiftRight(button) then
 		local parent = self:GetParent()
 		local bag = parent and parent:GetID()
-		if bag and bag >= 0 and bag <= 4 and MailSimilar(bag, self:GetID()) then
-			return
+		if SendMailFrame and SendMailFrame:IsVisible() then
+			if bag and bag >= 0 and bag <= 4 and MailSimilar(bag, self:GetID()) then
+				return
+			end
+		elseif bankOpen and bag and (IsBankBag(bag) or (bag >= 0 and bag <= 4)) then
+			if BankMoveSimilar(bag, self:GetID()) then
+				return
+			end
 		end
 	end
 	return origModifiedClick(self, button, ...)
+end
+
+-- a gyari bankablak 28 slotja
+if BankFrameItemButtonGeneric_OnModifiedClick then
+	local origBankClick = BankFrameItemButtonGeneric_OnModifiedClick
+	BankFrameItemButtonGeneric_OnModifiedClick = function(self, button, ...)
+		if IsShiftRight(button) and bankOpen and not self.isBag and BankMoveSimilar(-1, self:GetID()) then
+			return
+		end
+		return origBankClick(self, button, ...)
+	end
 end
 end
 
@@ -3340,12 +3514,23 @@ local function AddTooltipInfo(tt)
 		end
 	end
 
-	-- levelkuldes + lenyomott Shift: sugo a ket Shift-klikkhez (nem felszerelesen)
-	if IsShiftKeyDown() and SendMailFrame and SendMailFrame:IsVisible() and IsBagItemButton(owner) then
-		local _, _, _, _, _, _, subType, _, equipLoc = GetItemInfo(link)
-		if not equipLoc or equipLoc == "" then
+	-- levelkuldes / bank + lenyomott Shift: sugo a ket Shift-klikkhez (nem felszerelesen)
+	local mailOpen = SendMailFrame and SendMailFrame:IsVisible()
+	if IsShiftKeyDown() and (mailOpen or bankOpen) and IsBagItemButton(owner) then
+		local _, _, _, _, _, itemType, subType, _, equipLoc = GetItemInfo(link)
+		local bag = BagOfButton(owner)
+		if (not equipLoc or equipLoc == "") and bag and not (mailOpen and (bag < 0 or bag > 4)) then
+			local what = (subType and subType ~= "") and (" (" .. SubTypeLabel(itemType, subType) .. ")") or ""
+			local action
+			if mailOpen then
+				action = "attach all similar"
+			elseif bag == -1 or bag >= 5 then
+				action = "move all similar to bags"
+			else
+				action = "move all similar to bank"
+			end
 			tt:AddLine("Shift+Left-click: split stack", 0.6, 0.8, 1)
-			tt:AddLine("Shift+Right-click: attach all similar" .. ((subType and subType ~= "") and (" (" .. subType .. ")") or ""), 0.6, 0.8, 1)
+			tt:AddLine("Shift+Right-click: " .. action .. what, 0.6, 0.8, 1)
 			added = true
 		end
 	end
@@ -3476,11 +3661,12 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		-- (osszehasonlitas, probababu kurzor, levelkuldesi sugo) - a Box
 		-- ablakban es a gyari zsakablakokban is
 		local focus = GetMouseFocus and GetMouseFocus()
-		local parent = focus and focus.GetParent and focus:GetParent()
-		local bag = parent and parent.GetID and parent:GetID()
-		if focus and IsBagItemButton(focus) and focus:IsVisible() and bag and bag >= 0 and bag <= 4
-			and GetLink(bag, focus:GetID()) and not CursorHasItem() then
-			ContainerFrameItemButton_OnEnter(focus)
+		if focus and IsBagItemButton(focus) and focus:IsVisible() and not CursorHasItem() then
+			local bag = BagOfButton(focus)
+			if bag and (bag == -1 or (bag >= 0 and bag <= 11)) and GetLink(bag, focus:GetID()) then
+				local onEnter = focus:GetScript("OnEnter")
+				if onEnter then onEnter(focus) end
+			end
 		end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		MigratePins()
