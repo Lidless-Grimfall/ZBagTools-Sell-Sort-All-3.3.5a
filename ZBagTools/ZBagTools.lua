@@ -318,6 +318,7 @@ local TXT_USE = ITEM_SPELL_TRIGGER_ONUSE or "Use:"
 local TXT_PROC = ITEM_SPELL_TRIGGER_ONPROC or "Chance on hit:"
 local TXT_EQUIP = ITEM_SPELL_TRIGGER_ONEQUIP or "Equip:"
 local TXT_EQSET = (EQUIPMENT_SETS or "Equipment Sets: %s"):gsub("%%s", "")
+local TXT_UNIQUE = ITEM_UNIQUE or "Unique"
 
 local function IsRedText(fs)
 	local r, g, b = fs:GetTextColor()
@@ -385,6 +386,9 @@ ScanSlot = function(bag, slot)
 			end
 			if lt:sub(1, #TXT_EQSET) == TXT_EQSET then
 				info.equipSet = true
+			end
+			if lt:sub(1, #TXT_UNIQUE) == TXT_UNIQUE then
+				info.unique = true            -- "Unique", "Unique (5)", "Unique-Equipped"
 			end
 			if IsRedText(l) then
 				info.red = true
@@ -3336,6 +3340,14 @@ local function BankMoveSimilar(bag, slot)
 	if equipLoc and equipLoc ~= "" then
 		return false                          -- felszereles: marad a gyari
 	end
+	local function uniqueQuest(b, sl, t)
+		if t ~= "Quest" then return false end
+		local info = ScanSlot(b, sl)
+		return info and info.unique
+	end
+	if uniqueQuest(bag, slot, itemType) then
+		return false                          -- egyedi quest item: nincs tomeges athelyezes
+	end
 	local toBank = not IsBankBag(bag)
 	local src = toBank and BAGS or BANK_SIDE
 	local function similar(l)
@@ -3350,7 +3362,7 @@ local function BankMoveSimilar(bag, slot)
 		if not l or not similar(l) or IsLocked(b, sl) then return nil end
 		local _, _, locked = GetContainerItemInfo(b, sl)
 		local info = ScanSlot(b, sl)
-		if locked or (info and info.soulbound) then return nil end
+		if locked or (info and info.soulbound) or uniqueQuest(b, sl, itemType) then return nil end
 		return l
 	end
 	moveQueue = {}
