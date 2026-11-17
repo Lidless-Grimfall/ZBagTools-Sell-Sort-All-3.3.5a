@@ -121,6 +121,8 @@ local DEFAULTS = {
 	tintUnusable = true, newGlow = true,
 	tipCounts = false, tipAlts = false,
 	boxLocked = true,           -- a Box ablak a gyari zsakok helyere dokkolva
+	combatClose = true,         -- harc kezdetekor a zsakok bezarasa
+	combatReopen = true,        -- ...es harc utan visszanyitas
 	bankMode = "bag",           -- bank nezet: bag | all | box
 }
 
@@ -2389,29 +2391,31 @@ optX = OPT_COL2
 OptHeader("Bag display", 0)
 OptCheck("tintUnusable", "Tint unusable items red", -16, 0, RefreshDecor)
 OptCheck("newGlow", "Highlight new items", -40, 0, RefreshDecor)
+OptCheck("combatClose", "Close bags when entering combat", -64)
+OptCheck("combatReopen", "Reopen them after combat", -88, 20)
 
-OptHeader("Tooltip", -74)
-OptCheck("tipCounts", "Show item counts (bags, bank)", -90)
-OptCheck("tipAlts", "Include alt characters", -114, 20)
+OptHeader("Tooltip", -122)
+OptCheck("tipCounts", "Show item counts (bags, bank)", -138)
+OptCheck("tipAlts", "Include alt characters", -162, 20)
 
-OptHeader("Box window", -148)
-OptSlider("cols", -182, 4, 24, 1, "Columns: %d", nil, nil, function() Layout() end)
-OptSlider("scale", -224, 50, 200, 10, "Scale: %d%%",
+OptHeader("Box window", -196)
+OptSlider("cols", -230, 4, 24, 1, "Columns: %d", nil, nil, function() Layout() end)
+OptSlider("scale", -272, 50, 200, 10, "Scale: %d%%",
 	function(v) return math.floor((v or 1) * 100 + 0.5) end,
 	function(v) return v / 100 end,
 	function() combined:SetScale(DB().scale) end)
-OptSlider("bgAlpha", -266, 20, 100, 5, "Background opacity: %d%%",
+OptSlider("bgAlpha", -314, 20, 100, 5, "Background opacity: %d%%",
 	function(v) return math.floor((v or 0.9) * 100 + 0.5) end,
 	function(v) return v / 100 end,
 	function() combined:SetBackdropColor(BG_R, BG_G, BG_B, DB().bgAlpha) end)
 
-OptNote("Alt+Right-click an item to lock it.", -330)
-OptNote("Mail: Shift+Right-click attaches all similar items.", -344)
+OptNote("Alt+Right-click an item to lock it.", -378)
+OptNote("Mail / bank: Shift+Right-click moves all similar items.", -392)
 
 local resetBtn = CreateFrame("Button", "ZBagToolsOptReset", opt, "UIPanelButtonTemplate")
 resetBtn:SetWidth(130)
 resetBtn:SetHeight(20)
-resetBtn:SetPoint("TOPLEFT", opt, "TOPLEFT", OPT_COL2 + 4, -298)
+resetBtn:SetPoint("TOPLEFT", opt, "TOPLEFT", OPT_COL2 + 4, -346)
 resetBtn:SetText("Reset window")
 resetBtn:SetScript("OnClick", function()
 	ZBagToolsDB.point = nil
@@ -3594,6 +3598,8 @@ events:RegisterEvent("PLAYER_MONEY")
 events:RegisterEvent("UNIT_INVENTORY_CHANGED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("MODIFIER_STATE_CHANGED")
+events:RegisterEvent("PLAYER_REGEN_DISABLED")
+events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
 events:RegisterEvent("PLAYERBANKBAGSLOTS_CHANGED")
 events:RegisterEvent("PLAYER_LEVEL_UP")
@@ -3656,6 +3662,33 @@ events:SetScript("OnEvent", function(self, event, arg1)
 		-- uj szint / fegyverismeret: ujra kell nezni, mi hasznalhato
 		ClearScanCache()
 		RefreshAllBagViews()
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		-- harc: a nyitott zsakablakok bezarasa (a bankot nem, mert az a
+		-- bank bezarasat jelentene); megjegyezzuk, mi volt nyitva
+		combined.combatState = nil
+		if DB().combatClose then
+			local st = {box = combined:IsShown() and not combined.optionsMode, bags = {}}
+			for _, bag in ipairs(BAGS) do
+				if IsBagOpen(bag) then table.insert(st.bags, bag) end
+			end
+			if st.box or #st.bags > 0 then
+				combined.combatState = st
+				combined:Hide()
+				CloseSeparateBags()
+			end
+		end
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		-- harc vege: visszanyitjuk, ami nyitva volt (ha kozben nem nyitottal mast)
+		local st = combined.combatState
+		combined.combatState = nil
+		if st and DB().combatReopen and not combined:IsShown() and not AnyBagOpen() then
+			if st.box then
+				combined:Show()
+			end
+			for _, bag in ipairs(st.bags) do
+				if bag == 0 then CallOrig("OpenBackpack") else OpenBag(bag) end
+			end
+		end
 	elseif event == "MODIFIER_STATE_CHANGED" then
 		-- Shift/Ctrl lenyomasakor a zsak-gomb alatti tooltip azonnal frissul
 		-- (osszehasonlitas, probababu kurzor, levelkuldesi sugo) - a Box
