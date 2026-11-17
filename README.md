@@ -79,6 +79,8 @@ Items that belong to an Equipment Manager set are always locked automatically (t
 
 - **Tint unusable items red:** items your character can't use (class, armor/weapon type, level, ...) are tinted red, in the default bag windows and the combined window.
 - **Highlight new items:** items that came into your bags since you last opened them glow until you hover them or close all bags.
+- **Close bags when entering combat** (on by default): open bag windows (the combined window and the default bag windows) close when combat starts, so they don't cover the screen. The bank is left alone.
+- **Reopen them after combat** (on by default): when combat ends, whatever was open before comes back — unless you opened bags yourself during combat.
 
 ### Item counts in tooltips (Options, off by default)
 
@@ -113,7 +115,7 @@ All settings in one place, shown inside the combined window in place of the item
 - **Vendor:** auto sell, sort after selling, show earnings, also sell unusable soulbound gear, also sell gear worse than equipped (keep if appearance not collected), auto repair, use guild bank funds first (experimental)
 - **Sort:** fill gaps only / fill gaps + sort by type / sort by type + group same slot
 - **Bag space:** low space warning and its threshold
-- **Bag display:** tint unusable items red, highlight new items
+- **Bag display:** tint unusable items red, highlight new items, close bags when entering combat, reopen them after combat
 - **Tooltip:** item counts (bags, bank), include alt characters
 - **Box window:** columns, scale, background opacity, reset window
 
